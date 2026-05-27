@@ -1,5 +1,7 @@
 # Temario de C# — módulo `sale`
 
+**Lectura recomendada:** Las partes II a VI explican cada término técnico la primera vez que aparece, con lenguaje accesible.
+
 Documento tipo **temario**: temas de C# y .NET que aparecen en [`pc2/sale`](.) ordenados de básico a avanzado. Cada tema enlaza al archivo del repositorio (puedes abrirlo en GitHub sin clonar).
 
 **Ubicación de este temario:** [`pc2/sale/CONOCIMIENTOS_CSHARP.md`](CONOCIMIENTOS_CSHARP.md)
@@ -16,11 +18,11 @@ Documento tipo **temario**: temas de C# y .NET que aparecen en [`pc2/sale`](.) o
 | Parte | Nivel | Temas |
 |-------|--------|--------|
 | [I](#parte-i--fundamentos-del-lenguaje-c) | Básico | 1–8 |
-| [II](#parte-ii--orientación-a-objetos-y-contratos) | Intermedio | 9–14 |
-| [III](#parte-iii--api-web-y-capa-de-interfaces) | Intermedio | 15–18 |
-| [IV](#parte-iv--persistencia-con-entity-framework-core) | Avanzado | 19–23 |
-| [V](#parte-v--arquitectura-aplicación-y-dominio) | Avanzado | 24–28 |
-| [VI](#parte-vi--ensamblado-del-módulo-en-el-host) | Avanzado | 29 |
+| [II](#parte-ii--cómo-se-organizan-las-piezas-del-código-intermedio) | Intermedio | 9–14 |
+| [III](#parte-iii--la-api-por-internet-intermedio) | Intermedio | 15–18 |
+| [IV](#parte-iv--guardar-y-leer-en-base-de-datos-avanzado) | Avanzado | 19–23 |
+| [V](#parte-v--cómo-está-organizado-el-módulo-completo-avanzado) | Avanzado | 24–28 |
+| [VI](#parte-vi--cómo-se-enciende-el-módulo-al-arrancar-la-aplicación-avanzado) | Avanzado | 29 |
 | [Anexo](#anexo--mapa-de-archivos-por-tema) | — | Referencia rápida |
 
 ---
@@ -29,7 +31,7 @@ Documento tipo **temario**: temas de C# y .NET que aparecen en [`pc2/sale`](.) o
 
 ### Tema 1. Tipos de datos y propiedades
 
-**Qué aparece en `sale`:** enteros, texto, fechas, decimales y enumeraciones en entidades y DTOs.
+**Qué aparece en `sale`:** enteros, texto, fechas, decimales y enumeraciones en la entidad interna `bill` y en los objetos de transferencia para la API (DTO, temas 16 y 27).
 
 **Archivos:** [`domain/model/agreggates/bill.cs`](domain/model/agreggates/bill.cs) · [`interfaces/REST/resources/BillResource.cs`](interfaces/REST/resources/BillResource.cs)
 
@@ -65,7 +67,10 @@ public enum EService
 }
 ```
 
-Se usa en el body JSON (`ServiceId`), en validación (`Enum.IsDefined`) y en BD como entero (`HasConversion<int>()` en el contexto EF).
+**Dónde se usa este enum:**
+- En el **JSON** del cuerpo de la petición (campo `ServiceId`): formato de texto que envía el cliente.
+- En **validación** con `Enum.IsDefined`: comprobar que el número enviado sea uno de los permitidos.
+- En la **base de datos (BD)** como número entero, gracias a la configuración `HasConversion<int>()` en el contexto de Entity Framework (ver tema 20).
 
 ---
 
@@ -170,11 +175,15 @@ public class BillsController : ControllerBase
 
 ---
 
-## Parte II — Orientación a objetos y contratos
+## Parte II — Cómo se organizan las piezas del código (intermedio)
 
-### Tema 9. Interfaces
+> **Cómo leer esta parte:** si aparece una palabra técnica, va con una explicación en lenguaje sencillo. El objetivo es que entiendas *qué hace el código en la vida real*, no memorizar nombres en inglés.
 
-**Qué aparece en `sale`:** contratos que ocultan implementación (servicio de aplicación y repositorio).
+---
+
+### Tema 9. Interfaces (el “contrato” de qué debe hacer una clase)
+
+**Qué aparece en `sale`:** archivos que solo dicen *qué operaciones existen*, sin escribir cómo se hacen por dentro.
 
 **Archivos:**  
 - [`domain/service/IbillCommandService.cs`](domain/service/IbillCommandService.cs)  
@@ -190,23 +199,23 @@ public interface IBillCommandService
 }
 ```
 
-```5:12:pc2/sale/domain/repositories/IbillRepository.cs
-public interface IbillRepository
-{
-    Task<bill> AddAsync(bill bill);
-    // ...
-    Task<bill?> GetByBillNumberAsync(int billNumber);
-}
-```
+**Qué es una *interface* (interfaz):**  
+Es como la lista de funciones que una clase **debe** ofrecer. No contiene la lógica; solo el “menú”. Por ejemplo: “tiene que existir un método `Handle` que recibe datos de creación y devuelve la factura creada”.
+
+**Por qué se usa aquí:**  
+El controlador puede decir “necesito algo que cumpla `IBillCommandService`” sin importarle si detrás está `BillCommandService` u otra clase. Eso hace el código más flexible y más fácil de probar.
+
+**Qué es `Task<BillResource>`:**  
+Significa “esta operación tarda un poco (por ejemplo, guardar en base de datos) y, cuando termine, devolverá un `BillResource`”. Se relaciona con el tema 12 (`async` / `await`).
 
 ---
 
-### Tema 10. Implementación de interfaces
+### Tema 10. Clase que cumple el contrato (implementación)
 
-**Qué aparece en `sale`:** clases concretas que cumplen el contrato.
+**Qué aparece en `sale`:** las clases que sí tienen el código real detrás de cada interfaz.
 
-| Interfaz | Implementación |
-|----------|----------------|
+| Contrato (interfaz) | Clase que lo implementa |
+|---------------------|-------------------------|
 | `IBillCommandService` | [`application/BillCommandService.cs`](application/BillCommandService.cs) |
 | `IbillRepository` | [`infrastructure/persistence/EFC/repositories/BillRepository.cs`](infrastructure/persistence/EFC/repositories/BillRepository.cs) |
 
@@ -215,13 +224,18 @@ public class BillCommandService : IBillCommandService
 {
 ```
 
+**Qué significa `: IBillCommandService`:**  
+La clase `BillCommandService` **promete** cumplir todo lo que define la interfaz (en este caso, el método `Handle` con sus validaciones y guardado).
+
+**Analogía:** la interfaz es el contrato de trabajo; la clase es la persona que lo firma y hace el trabajo.
+
 ---
 
-### Tema 11. Inyección de dependencias por constructor
+### Tema 11. Que el programa “te pase” las herramientas listas (inyección de dependencias)
 
-**Qué aparece en `sale`:** el framework inyecta dependencias al crear controlador, servicio y repositorio.
+**Qué aparece en `sale`:** en lugar de crear objetos a mano con `new`, el constructor **recibe** lo que necesita.
 
-**Ejemplo controlador:** [`interfaces/REST/controllers/BillsController.cs`](interfaces/REST/controllers/BillsController.cs)
+**Ejemplo en el controlador:** [`interfaces/REST/controllers/BillsController.cs`](interfaces/REST/controllers/BillsController.cs)
 
 ```18:27:pc2/sale/interfaces/REST/controllers/BillsController.cs
     private readonly IBillCommandService _commandService;
@@ -232,21 +246,27 @@ public class BillCommandService : IBillCommandService
     }
 ```
 
-**Ejemplo servicio:** [`application/BillCommandService.cs`](application/BillCommandService.cs) — recibe `IbillRepository`.
+**Qué es *inyección de dependencias*:**  
+“Dependencia” = algo que una clase necesita para funcionar (aquí, el servicio de facturas). “Inyección” = el framework de ASP.NET **la entrega automáticamente** al crear el controlador, en lugar de que tú escribas `new BillCommandService()` dentro del controlador.
 
-El registro de parejas interfaz→clase está en [`../Program.cs`](../Program.cs) (fuera de `sale`, pero indispensable para el módulo).
+**Para qué sirve en `sale`:**  
+- El controlador no sabe *cómo* está hecho el servicio; solo usa la interfaz.  
+- En [`../Program.cs`](../Program.cs) se registra la pareja: “cuando pidan `IBillCommandService`, usa `BillCommandService`”. Ese archivo es el “catálogo” de qué clase corresponde a cada contrato.
+
+**Qué es `readonly`:**  
+El campo `_commandService` solo se asigna en el constructor y no cambia después. Es una forma de decir “esta dependencia es fija para esta instancia del controlador”.
 
 ---
 
-### Tema 12. `async` / `await` y `Task<T>`
+### Tema 12. Operaciones que esperan sin trabar el servidor (`async` / `await`)
 
-**Qué aparece en `sale`:** toda la cadena de creación de factura es asíncrona (no bloquea hilos mientras espera MySQL).
+**Qué aparece en `sale`:** al crear una factura, el programa **espera** la base de datos sin bloquear todo el servidor.
 
 **Cadena de archivos:**
 
-1. [`BillsController.cs`](interfaces/REST/controllers/BillsController.cs) — `async Task<IActionResult>`
-2. [`BillCommandService.cs`](application/BillCommandService.cs) — `async Task<BillResource> Handle(...)`
-3. [`BillRepository.cs`](infrastructure/persistence/EFC/repositories/BillRepository.cs) — `AddAsync`, `AnyAsync`, `SaveChangesAsync`
+1. [`BillsController.cs`](interfaces/REST/controllers/BillsController.cs)  
+2. [`BillCommandService.cs`](application/BillCommandService.cs)  
+3. [`BillRepository.cs`](infrastructure/persistence/EFC/repositories/BillRepository.cs)
 
 ```45:50:pc2/sale/interfaces/REST/controllers/BillsController.cs
     public async Task<IActionResult> CreateBill([FromBody] CreateBillResource resource)
@@ -257,11 +277,21 @@ El registro de parejas interfaz→clase está en [`../Program.cs`](../Program.cs
             return CreatedAtAction(nameof(CreateBill), new { billNumber = result.BillNumber }, result);
 ```
 
+| Palabra | Significado sencillo |
+|---------|----------------------|
+| `async` | “Este método puede hacer pausas mientras espera algo lento (red, base de datos).” |
+| `await` | “Quédate aquí hasta que termine esa parte lenta; mientras tanto, el servidor puede atender otras peticiones.” |
+| `Task` / `Task<T>` | La “promesa” de que la operación terminará y, si aplica, devolverá un valor (`T`). |
+| `IActionResult` | Lo que el controlador devuelve al cliente: JSON, código 201, error 400, etc. |
+
+**Ejemplo de la vida real:**  
+Como pedir comida: no te quedas parado sin hacer nada en la cocina; puedes hacer otra cosa hasta que llegue el plato. `await` es esa espera ordenada.
+
+Los métodos que terminan en `Async` (`AddAsync`, `SaveChangesAsync`) siguen la misma idea: hablan con MySQL sin trabar el hilo principal innecesariamente.
+
 ---
 
-### Tema 13. Tipos anulables (`bill?`)
-
-**Qué aparece en `sale`:** el repositorio indica que puede no existir una factura.
+### Tema 13. Valores que pueden no existir (`bill?`)
 
 **Archivo:** [`domain/repositories/IbillRepository.cs`](domain/repositories/IbillRepository.cs)
 
@@ -269,13 +299,17 @@ El registro de parejas interfaz→clase está en [`../Program.cs`](../Program.cs
     Task<bill?> GetByBillNumberAsync(int billNumber);
 ```
 
-Con `<Nullable>enable</Nullable>` en el `.csproj`, `bill?` documenta “puede ser null” en el contrato.
+**Qué significa el `?` en `bill?`:**  
+“Puede devolver una factura **o** no devolver nada (`null`) si no existe ese número.”
+
+**Qué es `null`:**  
+Ausencia de valor: “no hay objeto”. El proyecto tiene activada la opción de avisar cuando algo podría ser nulo (`<Nullable>enable</Nullable>` en el `.csproj`), para evitar errores del tipo “intentaste usar algo que no existe”.
 
 ---
 
-### Tema 14. Excepciones y reglas de negocio
+### Tema 14. Errores controlados y reglas del negocio
 
-**Qué aparece en `sale`:** validaciones lanzan `ArgumentException`; duplicado de factura lanza `InvalidOperationException`.
+**Qué aparece en `sale`:** si los datos no cumplen las reglas del taller, el código **lanza una excepción** (un error programado) con un mensaje claro.
 
 **Archivo:** [`application/BillCommandService.cs`](application/BillCommandService.cs)
 
@@ -289,39 +323,70 @@ Con `<Nullable>enable</Nullable>` en el `.csproj`, `bill?` documenta “puede se
             throw new InvalidOperationException("A bill with the same invoice already exists.");
 ```
 
-El controlador las traduce a HTTP 400 y 409.
+| Término | Qué significa aquí |
+|---------|---------------------|
+| **Regla de negocio** | Condición del mundo real: “el cliente es obligatorio”, “no puede haber dos facturas con la misma serie y correlativo”. |
+| **`throw`** | Detener el flujo normal y saltar al manejo de errores (`catch` en el controlador). |
+| **`ArgumentException`** | Datos incorrectos enviados por quien llama a la API → el controlador responde **400** (petición incorrecta). |
+| **`InvalidOperationException`** | La operación no se puede hacer por estado del sistema (duplicado) → respuesta **409** (conflicto). |
+
+El controlador **traduce** esas excepciones a códigos HTTP que entiende cualquier cliente web o móvil.
 
 ---
 
-## Parte III — API web y capa de interfaces
+## Parte III — La API por internet (intermedio)
 
-### Tema 15. Controladores REST (`ControllerBase`)
+**Qué es una API en este proyecto:**  
+Un conjunto de direcciones web a las que puedes enviar datos (por ejemplo JSON) y recibir respuestas. Aquí, para crear facturas.
 
-**Qué aparece en `sale`:** un endpoint POST para crear facturas.
+**Qué es REST:**  
+Un estilo de diseño donde cada acción usa un verbo HTTP conocido: `GET` (leer), `POST` (crear), `PUT`/`PATCH` (actualizar), `DELETE` (borrar). En `sale` solo se usa `POST` para crear.
+
+**Qué es JSON:**  
+Formato de texto para intercambiar datos: `{"customer": "Juan", "amount": 100}`. Las clases `CreateBillResource` y `BillResource` representan esa estructura en C#.
+
+---
+
+### Tema 15. Controlador: quien recibe la petición web
 
 **Archivo:** [`interfaces/REST/controllers/BillsController.cs`](interfaces/REST/controllers/BillsController.cs)
 
-- Ruta base: `api/v1/bills`
-- Acción: `CreateBill` con verbo HTTP POST
-- Respuesta exitosa: **201 Created** con `CreatedAtAction`
+```14:16:pc2/sale/interfaces/REST/controllers/BillsController.cs
+[ApiController]
+[Route("api/v1/bills")]
+public class BillsController : ControllerBase
+```
+
+| Pieza | Explicación |
+|-------|-------------|
+| **Controlador** | Clase que atiende peticiones HTTP; es la “puerta de entrada” del módulo. |
+| **`[Route("api/v1/bills")]`** | La URL base: todo lo de este controlador empieza por `/api/v1/bills`. |
+| **`ControllerBase`** | Clase base de ASP.NET que aporta métodos útiles (`BadRequest`, `CreatedAtAction`, etc.) sin pantallas HTML. |
+| **`POST` + `CreateBill`** | “Crear algo nuevo” enviando datos en el cuerpo de la petición. |
+| **201 Created** | Código HTTP que significa: “se creó correctamente”. |
+| **`CreatedAtAction`** | Respuesta 201 que además indica dónde quedó el recurso creado (cabecera `Location`). |
 
 ---
 
-### Tema 16. DTOs / Resources (contrato JSON)
+### Tema 16. Objetos solo para la API (DTO / Resource)
 
-**Qué aparece en `sale`:** tipos solo para entrada/salida HTTP, separados de la entidad `bill`.
+**Qué es un DTO (*Data Transfer Object*):**  
+Una clase **solo para mover datos** entre el cliente y el servidor. No tiene lógica de negocio; es el “formulario” de entrada o el “recibo” de salida.
 
-| DTO | Rol | Archivo |
-|-----|-----|---------|
-| `CreateBillResource` | Body del POST (incluye placa y asesor) | [`CreateBillResource.cs`](interfaces/REST/resources/CreateBillResource.cs) |
-| `BillResource` | Respuesta (sin placa ni asesor) | [`BillResource.cs`](interfaces/REST/resources/BillResource.cs) |
-| `InvoiceResource` | Estructura alternativa de factura (definida, poco usada en el flujo actual) | [`InvoiceResource.cs`](interfaces/REST/resources/InvoiceResource.cs) |
+En este proyecto se llaman `*Resource`:
+
+| Clase | Para qué sirve | Archivo |
+|-------|----------------|---------|
+| `CreateBillResource` | Datos que envía quien llama al `POST` (incluye placa y asesor) | [`CreateBillResource.cs`](interfaces/REST/resources/CreateBillResource.cs) |
+| `BillResource` | Datos que devuelve el servidor tras crear (sin placa ni asesor) | [`BillResource.cs`](interfaces/REST/resources/BillResource.cs) |
+| `InvoiceResource` | Formato alternativo de factura; definido pero casi no usado en el flujo actual | [`InvoiceResource.cs`](interfaces/REST/resources/InvoiceResource.cs) |
+
+**Por qué no se usa directamente `bill` en la API:**  
+La entidad `bill` tiene campos internos (auditoría, etc.) que no quieres mostrar fuera. Los DTO permiten **elegir qué se ve y qué no**.
 
 ---
 
-### Tema 17. Manejo de errores HTTP en el controlador
-
-**Qué aparece en `sale`:** `try/catch` por tipo de excepción → código de estado.
+### Tema 17. Respuestas cuando algo sale mal
 
 **Archivo:** [`interfaces/REST/controllers/BillsController.cs`](interfaces/REST/controllers/BillsController.cs)
 
@@ -336,17 +401,21 @@ El controlador las traduce a HTTP 400 y 409.
         }
 ```
 
-| Excepción | HTTP |
-|-----------|------|
-| `ArgumentException` | 400 Bad Request |
-| `InvalidOperationException` | 409 Conflict |
-| Otras | 500 Internal Server Error |
+**Qué es `try` / `catch`:**  
+`try` = “intenta hacer esto”; `catch` = “si ocurre este tipo de error, responde así en lugar de caerse la aplicación”.
+
+| Código HTTP | Nombre | Cuándo lo usa `sale` |
+|-------------|--------|----------------------|
+| **400** | Bad Request | Datos inválidos (cliente vacío, monto ≤ 0, etc.) |
+| **409** | Conflict | Ya existe una factura con esa serie y correlativo |
+| **500** | Internal Server Error | Error no previsto (fallo interno) |
+
+**Qué es HTTP:**  
+El protocolo con el que el navegador o Postman hablan con el servidor. Los números (400, 201…) son códigos estándar para que el cliente sepa qué pasó sin leer todo el mensaje.
 
 ---
 
-### Tema 18. Documentación Swagger (OpenAPI)
-
-**Qué aparece en `sale`:** metadatos en el endpoint para UI Swagger.
+### Tema 18. Documentación automática de la API (Swagger)
 
 **Archivo:** [`interfaces/REST/controllers/BillsController.cs`](interfaces/REST/controllers/BillsController.cs)
 
@@ -360,15 +429,28 @@ El controlador las traduce a HTTP 400 y 409.
     [ProducesResponseType(409)]
 ```
 
-Configuración global de Swagger: [`../Program.cs`](../Program.cs).
+| Término | Significado |
+|---------|-------------|
+| **Swagger** | Herramienta que genera una página web para probar la API sin escribir código cliente. |
+| **OpenAPI** | El estándar detrás de Swagger: describe rutas, parámetros y respuestas en un formato común. |
+| **`[SwaggerOperation]`** | Título y descripción que verás en esa página de prueba. |
+| **`[ProducesResponseType]`** | “Este endpoint puede devolver 201 con `BillResource`, o 400, o 409.” |
+
+La configuración general (título “Maquinarias API”, etc.) está en [`../Program.cs`](../Program.cs).
 
 ---
 
-## Parte IV — Persistencia con Entity Framework Core
+## Parte IV — Guardar y leer en base de datos (avanzado)
 
-### Tema 19. `DbContext` y `DbSet<T>`
+**Qué es una base de datos aquí:**  
+MySQL guarda las facturas en tablas (como hojas de Excel con muchas filas). El módulo `sale` no escribe SQL a mano en cada sitio; usa una librería que traduce objetos C# a consultas.
 
-**Qué aparece en `sale`:** `BillContext` es la sesión de EF contra MySQL para la tabla de facturas.
+**Qué es Entity Framework Core (EF Core):**  
+Herramienta de Microsoft que conecta tus clases C# (`bill`) con tablas SQL. Permite agregar, buscar y comprobar datos con código parecido a C# en lugar de escribir `INSERT`/`SELECT` en cada archivo.
+
+---
+
+### Tema 19. El “puente” con la base de datos (`DbContext` y `DbSet`)
 
 **Archivo:** [`infrastructure/persistence/EFC/context/billContext.cs`](infrastructure/persistence/EFC/context/billContext.cs)
 
@@ -380,14 +462,17 @@ public class BillContext : DbContext
     public BillContext(DbContextOptions<BillContext> options) : base(options) { }
 ```
 
-- `DbSet<bill>`: colección consultable (`AddAsync`, LINQ).
-- Constructor con `DbContextOptions<BillContext>`: patrón estándar para inyectar cadena de conexión desde `Program.cs`.
+| Término | Explicación |
+|---------|-------------|
+| **`DbContext`** | Objeto que representa una sesión de trabajo con la base de datos: sabe la conexión, las tablas y cuándo guardar cambios. |
+| **`DbSet<bill>`** | La “colección” de todas las filas de facturas, como si fuera una lista en memoria pero respaldada por la tabla `bills`. |
+| **`BillContextOptions`** | Configuración que llega desde `Program.cs` (servidor MySQL, usuario, contraseña en `appsettings`). |
+
+Cuando el repositorio hace `_context.Bills.AddAsync(bill)`, está diciendo: “añade esta factura al contexto”; con `SaveChangesAsync()` se envía realmente a MySQL.
 
 ---
 
-### Tema 20. Configuración con Fluent API (`OnModelCreating`)
-
-**Qué aparece en `sale`:** reglas de tabla, claves, longitudes y tipos SQL en código, no solo con atributos.
+### Tema 20. Reglas de cómo se guarda cada campo (configuración en código)
 
 **Archivo:** [`infrastructure/persistence/EFC/context/billContext.cs`](infrastructure/persistence/EFC/context/billContext.cs)
 
@@ -402,20 +487,22 @@ public class BillContext : DbContext
                   .ValueGeneratedOnAdd();
 ```
 
-| API | Efecto en `sale` |
-|-----|------------------|
-| `HasKey` | PK `BillNumber` |
-| `ValueGeneratedOnAdd` | Autoincremento al insertar |
-| `IsRequired` / `HasMaxLength` | Restricciones de columnas |
-| `HasColumnType("decimal(18,2)")` | Monto con precisión en BD |
-| `HasConversion<int>()` | `EService` guardado como entero |
-| `ToTable("bills")` | Nombre de tabla |
+**Qué es *Fluent API*:**  
+Forma de describir reglas de la base de datos **escribiendo código** en `OnModelCreating`, en lugar de solo poner etiquetas `[...]` en las propiedades.
+
+| Método en el código | Qué hace en palabras simples |
+|--------------------|----------------------------|
+| `HasKey` | Define la **clave primaria**: el identificador único de cada fila (`BillNumber`). |
+| `ValueGeneratedOnAdd` | El número de factura lo genera la base de datos al insertar (autoincremento). |
+| `IsRequired` | El campo no puede quedar vacío en la tabla. |
+| `HasMaxLength` | Límite de caracteres (por ejemplo, cliente máximo 100). |
+| `HasColumnType("decimal(18,2)")` | Guardar el monto como decimal con 2 decimales (más preciso que `double` para dinero). |
+| `HasConversion<int>()` | Guardar el enum `EService` como número entero en la tabla. |
+| `ToTable("bills")` | Nombre real de la tabla en MySQL. |
 
 ---
 
-### Tema 21. Tipos owned (`OwnsOne`) — **avanzado**
-
-**Qué aparece en `sale`:** `Invoice` no es una tabla separada; sus columnas viven en la fila de `bills`.
+### Tema 21. Datos de factura (serie/correlativo) dentro de la misma fila (`OwnsOne`)
 
 **Archivo:** [`infrastructure/persistence/EFC/context/billContext.cs`](infrastructure/persistence/EFC/context/billContext.cs)
 
@@ -432,9 +519,13 @@ public class BillContext : DbContext
             });
 ```
 
-**Por qué es avanzado:** modela un *value object* DDD en un esquema relacional sin FK a otra entidad. Las consultas LINQ usan `b.Invoice.SerialNumber` como si fuera objeto anidado; EF genera columnas embebidas (p. ej. `invoice_serial_number` con snake_case).
+**Qué es `OwnsOne`:**  
+Le dice a EF: “`Invoice` no tiene tabla propia; sus campos viven **dentro** de la fila de `bills`”. En la base verás columnas del estilo `invoice_serial_number`, no una tabla `invoices` separada.
 
-**Consulta relacionada:** duplicados en [`BillRepository.cs`](infrastructure/persistence/EFC/repositories/BillRepository.cs):
+**Por qué se hace así:**  
+En el modelo de negocio, serie y correlativo son parte de la factura, no un registro independiente con vida propia. Es como guardar “dirección: calle y número” en la misma ficha del cliente, sin crear otra tabla solo para direcciones.
+
+**Consulta de duplicados** en [`BillRepository.cs`](infrastructure/persistence/EFC/repositories/BillRepository.cs):
 
 ```26:28:pc2/sale/infrastructure/persistence/EFC/repositories/BillRepository.cs
         return await _context.Bills
@@ -442,13 +533,14 @@ public class BillContext : DbContext
                            b.Invoice.SequentialNumber == sequentialNumber);
 ```
 
-`AnyAsync` se traduce a SQL tipo `EXISTS` — eficiente para comprobar unicidad.
+| Término | Significado |
+|---------|-------------|
+| **LINQ** | Sintaxis en C# para filtrar listas (`b => b.Invoice.SerialNumber == ...`). EF la convierte a SQL. |
+| **`AnyAsync`** | Pregunta: “¿existe al menos una fila que cumpla esto?” — útil para comprobar duplicados sin traer todos los datos. |
 
 ---
 
-### Tema 22. Repositorio con LINQ asíncrono
-
-**Qué aparece en `sale`:** implementación concreta del puerto de persistencia.
+### Tema 22. Repositorio: la clase que habla con la base por ti
 
 **Archivo:** [`infrastructure/persistence/EFC/repositories/BillRepository.cs`](infrastructure/persistence/EFC/repositories/BillRepository.cs)
 
@@ -460,17 +552,21 @@ public class BillContext : DbContext
         return bill;
 ```
 
-`SaveChangesAsync` confirma la transacción; tras el insert, `BillNumber` queda rellenado por la BD (`ValueGeneratedOnAdd`).
+**Qué es un *repositorio*:**  
+Capa que concentra **cómo** se guardan y buscan las facturas. El servicio de aplicación no llama a SQL directo; llama a `AddAsync`, `ExistByInvoiceAsync`, etc.
+
+**Qué hace `SaveChangesAsync`:**  
+Confirma los cambios pendientes en el contexto. Hasta ese momento, los datos pueden estar solo “en memoria” dentro de EF. Después del guardado, `BillNumber` suele venir ya rellenado por la base (autoincremento).
 
 ---
 
-### Tema 23. Convención snake_case (método de extensión) — **avanzado**
+### Tema 23. Nombres de columnas con guión bajo (`snake_case`)
 
-**Qué aparece en `sale`:** nombres C# en PascalCase/camelCase mapeados a columnas `snake_case` en MySQL.
+En C# es habitual `BillNumber` (varias palabras juntas). En MySQL del proyecto se prefieren nombres como `bill_number`.
 
-**Uso en contexto:** [`billContext.cs`](infrastructure/persistence/EFC/context/billContext.cs) — `modelBuilder.UserSnakeCaseNamingConventions();`
+**Uso en:** [`billContext.cs`](infrastructure/persistence/EFC/context/billContext.cs) — línea `modelBuilder.UserSnakeCaseNamingConventions();`
 
-**Implementación compartida:** [`../shared/Persistence/EFC/Extentions/NamingConventionsExtension.cs`](../shared/Persistence/EFC/Extentions/NamingConventionsExtension.cs)
+**Implementación:** [`../shared/Persistence/EFC/Extentions/NamingConventionsExtension.cs`](../shared/Persistence/EFC/Extentions/NamingConventionsExtension.cs)
 
 ```8:18:pc2/shared/Persistence/EFC/Extentions/NamingConventionsExtension.cs
     public static void UserSnakeCaseNamingConventions(this ModelBuilder builder)
@@ -487,53 +583,68 @@ public class BillContext : DbContext
     }
 ```
 
-**Conceptos C# implicados:**
+| Término | Significado |
+|---------|-------------|
+| **snake_case** | Palabras en minúsculas separadas por `_` (`created_at`). |
+| **Método de extensión** | Función extra que “se cuelga” de un tipo existente (`ModelBuilder`) y se escribe como si fuera propio de EF. El `this` en el primer parámetro es lo que lo hace extensión. |
+| **Regex** | Búsqueda de patrones en texto; aquí inserta `_` entre minúscula y mayúscula para transformar nombres. |
 
-- **Método de extensión** (`this ModelBuilder builder`): se llama como si fuera método nativo de EF.
-- **Regex** para insertar `_` entre minúsculas y mayúsculas (`BillNumber` → `bill_number`).
-
-Se combina con `[Column("CreatedAt")]` en auditoría cuando el nombre final debe ser exacto (`created_at`).
+Si hace falta un nombre exacto distinto al automático, se usa `[Column("CreatedAt")]` en [`bilordersaudit.cs`](domain/model/agreggates/bilordersaudit.cs).
 
 ---
 
-## Parte V — Arquitectura, aplicación y dominio
+## Parte V — Cómo está organizado el módulo completo (avanzado)
 
-### Tema 24. Capas del módulo (estructura de carpetas)
+**Qué es “arquitectura” aquí:**  
+No es un dibujo decorativo: es **repasar carpetas** para saber dónde va cada responsabilidad y en qué orden se ejecutan las cosas al crear una factura.
+
+---
+
+### Tema 24. Capas (carpetas) y el camino de una petición
 
 ```
 sale/
-├── interfaces/REST/     → HTTP (controllers, resources, transform)
-├── application/           → Casos de uso (BillCommandService)
-├── domain/                → Modelo + contratos (IbillRepository, IBillCommandService)
-└── infrastructure/        → EF Core (BillContext, BillRepository)
+├── interfaces/REST/     →  Recibe y responde por HTTP
+├── application/           →  Reglas al crear una factura (BillCommandService)
+├── domain/                →  Modelo de negocio y contratos (interfaces)
+└── infrastructure/        →  Conexión real con MySQL (EF Core)
 ```
 
-**Flujo del caso de uso “crear factura”:**
+**Flujo al crear una factura (en orden):**
 
-`BillsController` → `BillCommandService.Handle` → `BillRepository` → `BillContext` → MySQL
+1. [`BillsController`](interfaces/REST/controllers/BillsController.cs) — recibe el JSON.  
+2. [`BillCommandService`](application/BillCommandService.cs) — valida y arma el objeto `bill`.  
+3. [`BillRepository`](infrastructure/persistence/EFC/repositories/BillRepository.cs) — guarda en base.  
+4. [`BillContext`](infrastructure/persistence/EFC/context/billContext.cs) — traduce a tablas MySQL.  
+5. Respuesta como [`BillResource`](interfaces/REST/resources/BillResource.cs) — JSON de vuelta al cliente.
+
+Cada capa conoce principalmente la de abajo a través de **interfaces**, no de detalles internos.
 
 ---
 
-### Tema 25. Patrón Command / servicio de aplicación — **avanzado**
-
-**Qué aparece en `sale`:** un método `Handle` concentra un caso de uso transaccional (validar + persistir + devolver DTO).
+### Tema 25. Un solo método para “crear factura” (`Handle`)
 
 **Archivo:** [`application/BillCommandService.cs`](application/BillCommandService.cs)
 
-Responsabilidades en un solo lugar:
+**Qué es un *caso de uso*:**  
+Una acción concreta del negocio: “registrar una nueva factura”. Aquí se concentra en el método `Handle`.
 
-1. Validar reglas (longitudes, monto, fecha, enum, unicidad).
-2. Materializar entidad `bill` con auditoría UTC.
-3. Persistir vía repositorio.
-4. Proyectar a `BillResource` (respuesta acotada).
+**Pasos que hace `Handle`:**
 
-**Profundización:** el controlador no conoce EF ni SQL; solo conoce `IBillCommandService`. Eso es **separación de responsabilidades** y facilita pruebas unitarias del servicio con un repositorio falso.
+1. Comprobar reglas (cliente, monto, fecha, tipo de servicio, factura no duplicada).  
+2. Crear el objeto `bill` con fechas de creación/actualización.  
+3. Pedir al repositorio que lo guarde.  
+4. Devolver `BillResource` (solo los campos que el cliente debe ver).
+
+**Qué es el patrón *Command* (comando):**  
+Nombre formal para “un método que representa una orden”: `Handle` = ejecutar la orden “crear factura”. El controlador no reparte validaciones; delega todo al servicio.
+
+**Separación de responsabilidades:**  
+El controlador no sabe SQL ni tablas. Solo llama al servicio. Eso facilita cambiar la base de datos o las reglas sin tocar la URL de la API.
 
 ---
 
-### Tema 26. Validación de enum en tiempo de ejecución — **avanzado**
-
-**Qué aparece en `sale`:** JSON puede deserializar un entero que no está en el enum; se rechaza explícitamente.
+### Tema 26. Comprobar que el tipo de servicio sea uno permitido
 
 **Archivo:** [`application/BillCommandService.cs`](application/BillCommandService.cs)
 
@@ -542,13 +653,15 @@ Responsabilidades en un solo lugar:
             throw new ArgumentException("Invalid service ID.");
 ```
 
-Sin esto, un valor como `99` podría guardarse si EF no validara el dominio. Aquí la regla es de **negocio**, no solo de serialización.
+**Problema que resuelve:**  
+En JSON alguien podría enviar `"serviceId": 99`. Ese número no existe en el enum `EService` (solo 10, 20, 30, 40). Sin esta comprobación, podrías guardar un valor sin sentido.
+
+**Qué es *deserializar*:**  
+Convertir el texto JSON en objetos C#. Esa conversión no siempre valida reglas de negocio; por eso el servicio vuelve a comprobar.
 
 ---
 
-### Tema 27. Ensamblador estático (mapeo entre capas) — **avanzado**
-
-**Qué aparece en `sale`:** clase `static` sin estado que convierte entidad ↔ DTO.
+### Tema 27. Convertir entre “modelo interno” y “lo que ve el cliente” (ensamblador)
 
 **Archivo:** [`interfaces/REST/transform/billResourceAssembler.cs`](interfaces/REST/transform/billResourceAssembler.cs)
 
@@ -566,36 +679,45 @@ Sin esto, un valor como `99` podría guardarse si EF no validara el dominio. Aqu
     };
 ```
 
-**Sintaxis moderna C#:**
+**Qué es un *ensamblador* (assembler):**  
+Clase o métodos que **copian datos** de un tipo a otro, campo por campo. Aquí: de `bill` (interno) a `BillResource` (respuesta API).
 
-- `=> new() { ... }` — método con cuerpo de expresión y `target-typed new`.
-- Comentario de intención: qué campos **no** se exponen al cliente.
+**Qué significa `static`:**  
+Se usa sin crear instancia de la clase: `BillResourceAssembler.ToResource(bill)`.
 
-Hoy `BillCommandService` también mapea inline; el assembler centraliza el mismo criterio para otros endpoints futuros.
+**Qué significa `=> new() { ... }`:**  
+Forma corta de crear un objeto y rellenar propiedades en una sola expresión.
 
-**Método inverso:** `ToEntity(CreateBillResource)` en el mismo archivo — crea `bill` + `Invoice` + fechas UTC.
+**Por qué se omiten placa y asesor en la respuesta:**  
+Requisito del negocio/API: al crear, el cliente recibe solo ciertos campos. El comentario en el código lo deja explícito para quien mantenga el proyecto.
 
----
-
-### Tema 28. Conceptos DDD usados en el código — **avanzado**
-
-| Concepto DDD | En `sale` | Archivo |
-|--------------|-----------|---------|
-| **Entidad / agregado** | `bill` con identidad `BillNumber` | [`bill.cs`](domain/model/agreggates/bill.cs) |
-| **Value object** | `Invoice`, `EService` | [`Invoice.cs`](domain/model/valueobjects/Invoice.cs), [`EService.cs`](domain/model/valueobjects/EService.cs) |
-| **Repositorio** | `IbillRepository` | [`IbillRepository.cs`](domain/repositories/IbillRepository.cs) |
-| **Servicio de dominio/aplicación** | `IBillCommandService` | [`IbillCommandService.cs`](domain/service/IbillCommandService.cs) |
-| **Anti-corruption / DTO** | `CreateBillResource`, `BillResource` | carpeta [`interfaces/REST/resources/`](interfaces/REST/resources/) |
-
-**Nota de diseño:** `IBillCommandService` vive en `domain` pero devuelve `BillResource` (capa interfaces). Es un acoplamiento pragmático del template; en un DDD estricto el servicio devolvería un tipo de dominio y el controlador mapearía al DTO.
+Hoy parte del mapeo también está dentro de `BillCommandService`; el ensamblador sirve para no repetir la misma lógica en varios sitios.
 
 ---
 
-## Parte VI — Ensamblado del módulo en el host
+### Tema 28. Ideas de diseño orientado al dominio (DDD) — en lenguaje llano
 
-### Tema 29. Registro en DI y arranque (relacionado con `sale`)
+**DDD (*Domain-Driven Design*):**  
+Forma de organizar el software **alrededor del lenguaje del negocio** (factura, servicio, asesor), no solo alrededor de tablas y pantallas.
 
-No está dentro de `sale/`, pero sin esto el módulo no corre. Archivo: [`../Program.cs`](../Program.cs)
+| Idea DDD | Cómo se ve en `sale` | Archivo |
+|----------|----------------------|---------|
+| **Entidad** | Algo con identidad propia que persiste (`bill`, identificado por `BillNumber`) | [`bill.cs`](domain/model/agreggates/bill.cs) |
+| **Objeto de valor** | Datos que se definen por su contenido, no por un ID (`Invoice` = serie + correlativo; `EService` = tipo de servicio) | [`Invoice.cs`](domain/model/valueobjects/Invoice.cs), [`EService.cs`](domain/model/valueobjects/EService.cs) |
+| **Repositorio** | Puerta de entrada para guardar/buscar entidades sin mezclar SQL en todo el código | [`IbillRepository.cs`](domain/repositories/IbillRepository.cs) |
+| **Servicio de aplicación** | Coordina un caso de uso usando entidades y repositorio | [`BillCommandService.cs`](application/BillCommandService.cs) |
+| **Capa anti-corrupción** | DTOs (`CreateBillResource`, `BillResource`) que evitan que el formato JSON “contamine” el modelo interno | [`interfaces/REST/resources/`](interfaces/REST/resources/) |
+
+**Nota honesta del template:**  
+`IBillCommandService` está en `domain` pero devuelve `BillResource`, que es de la capa web. En un diseño muy estricto, el dominio no conocería ese DTO; el controlador haría la conversión final. Aquí se prioriza practicidad del template.
+
+---
+
+## Parte VI — Cómo se “enciende” el módulo al arrancar la aplicación (avanzado)
+
+### Tema 29. Registro de servicios y base de datos
+
+No está dentro de `sale/`, pero sin esto el módulo no funciona. Archivo: [`../Program.cs`](../Program.cs)
 
 ```29:35:pc2/Program.cs
 builder.Services.AddDbContext<BillContext>(options =>
@@ -606,13 +728,17 @@ builder.Services.AddScoped<IBillCommandService, BillCommandService>();
 builder.Services.AddScoped<IbillRepository, BillRepository>();
 ```
 
-| Registro | Concepto |
-|----------|----------|
-| `AddDbContext<BillContext>` | EF + proveedor **Pomelo** para MySQL 8 |
-| `AddScoped<...>` | Misma instancia por petición HTTP (alineado con un `SaveChanges` por request) |
-| `EnsureCreated()` | Crea BD/esquema al arrancar (desarrollo; en producción suelen usarse migraciones) |
+| Línea | Qué significa |
+|-------|----------------|
+| `AddDbContext<BillContext>` | Registra el puente a MySQL y lee la cadena de conexión del archivo de configuración. |
+| `UseMySql` + **Pomelo** | Librería que adapta EF Core para hablar con MySQL 8. |
+| `AddScoped<Interfaz, Clase>` | **Scoped** = “crea una instancia nueva por cada petición web y reutilízala dentro de esa misma petición”. Así el controlador, servicio y repositorio comparten el mismo contexto de base de datos al guardar. |
+| `EnsureCreated()` (más abajo en el mismo archivo) | Al iniciar, crea la base/tablas si no existen. Útil en desarrollo; en producción suele usarse otro mecanismo (**migraciones**: scripts versionados de cambios en el esquema). |
 
-**Stack del `.csproj`:** [`../pc2-7420-u20231f226.csproj`](../pc2-7420-u20231f226.csproj) — .NET 9, EF Core 8, Swashbuckle, nullable e implicit usings.
+**Qué es el *host*:**  
+El programa principal que levanta el servidor web. `Program.cs` es el punto de entrada que configura todo antes de `app.Run()`.
+
+**Paquetes del proyecto:** [`../pc2-7420-u20231f226.csproj`](../pc2-7420-u20231f226.csproj) — .NET 9, EF Core, Swagger, etc.
 
 ---
 
